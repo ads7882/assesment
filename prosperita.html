@@ -326,9 +326,9 @@ const SK = {lb:'paq_lb2',results:'paq_res2',settings:'paq_cfg2',modules:'paq_mod
 const DB = {
   async get(k){ try{const v=localStorage.getItem(k);return v?JSON.parse(v):null;}catch{return null;} },
   async set(k,v){ try{localStorage.setItem(k,JSON.stringify(v));}catch{} },
-  async fbGet(p){ if(!fbDB)return null; try{const s=await fbDB.ref(p).get();return s.exists()?s.val():null;}catch{return null;} },
-  async fbSet(p,v){ if(!fbDB)return false; try{await fbDB.ref(p).set(v);return true;}catch{return false;} },
-  async fbPush(p,v){ if(!fbDB)return null; try{const r=await fbDB.ref(p).push(v);return r.key;}catch{return null;} },
+  async fbGet(p){ if(!fbDB)return null; try{const s=await Promise.race([fbDB.ref(p).get(),new Promise((_,r)=>setTimeout(()=>r(new Error('FB timeout')),8000))]);return s.exists()?s.val():null;}catch(e){console.warn('[FB]',p,e.message);return null;} },
+  async fbSet(p,v){ if(!fbDB)return false; try{await Promise.race([fbDB.ref(p).set(v),new Promise((_,r)=>setTimeout(()=>r(new Error('timeout')),8000))]);return true;}catch(e){console.warn('[FB set]',p,e.message);return false;} },
+  async fbPush(p,v){ if(!fbDB)return null; try{const r=await Promise.race([fbDB.ref(p).push(v),new Promise((_,r)=>setTimeout(()=>r(new Error('timeout')),8000))]);return r.key;}catch(e){console.warn('[FB push]',p,e.message);return null;} },
 };
 
 // ═══ CONSTANTS ═══
@@ -523,16 +523,19 @@ async function panelOverview(el){
 
 // ═══ PANEL: RESULTS ═══
 async function panelResults(el){
-  let results=[];try{const v=localStorage.getItem(SK.results);results=v?JSON.parse(v):[];}catch{}
-  if(fbDB){try{results=await fbResults();}catch{}}
-  el.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px;">
-    <div style="font-family:var(--head);font-size:20px;font-weight:800;">📋 All Quiz Results</div>
+  // 1. Read localStorage synchronously
+  let results=[];
+  try{const v=localStorage.getItem(SK.results);results=v?JSON.parse(v):[];}catch{}
+  // 2. Render IMMEDIATELY from local data
+  function doRender(data){
+    el.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px;">
+    <div style="font-family:var(--head);font-size:20px;font-weight:800;">📋 All Quiz Results ${fbDB?'<span class=\"chip chip-green\" style=\"font-size:9px;margin-left:8px\">☁ Firebase</span>':''}</div>
     <button class="btn btn-danger btn-sm" onclick="clearResults()">🗑 Clear All</button>
   </div>
-  ${!results.length?'<div class="card" style="text-align:center;padding:40px;color:var(--muted);font-family:var(--mono);">No quiz results yet</div>':`
+  ${!data.length?'<div class="card" style="text-align:center;padding:40px;color:var(--muted);font-family:var(--mono);">No quiz results yet</div>':`
   <div class="card"><div class="tbl-wrap"><table class="tbl">
     <thead><tr><th>#</th><th>Name</th><th>Module</th><th>Score</th><th>Correct</th><th>Wrong</th><th>Accuracy</th><th>Chain</th><th>Time</th></tr></thead>
-    <tbody>${results.map((r,i)=>`<tr>
+    <tbody>${data.map((r,i)=>`<tr>
       <td style="color:var(--muted);font-family:var(--mono);font-size:11px">${i+1}</td>
       <td><span style="font-size:14px">${esc(r.avatar||'👤')}</span> <strong>${esc(r.name)}</strong></td>
       <td>${modName(r.modId)}</td>
@@ -542,6 +545,12 @@ async function panelResults(el){
       <td style="font-family:var(--mono);font-size:10px;color:var(--muted)">${fmtDate(r.ts)}</td>
     </tr>`).join('')}</tbody>
   </table></div></div>`}`;
+  }
+  doRender(results);
+  // 3. Update from Firebase in background (no await blocking render)
+  if(fbDB){
+    fbResults().then(fbData=>{if(fbData&&fbData.length)doRender(fbData);}).catch(()=>{});
+  }
 }
 async function clearResults(){
   if(!confirm('Delete all results? This cannot be undone.')) return;
@@ -552,20 +561,24 @@ async function clearResults(){
 
 // ═══ PANEL: LEADERBOARD ═══
 async function panelLeaderboard(el){
-  let lb=[];try{const v=localStorage.getItem(SK.lb);lb=v?JSON.parse(v).sort((a,b)=>b.score-a.score):[];}catch{}
-  if(fbDB){try{lb=await fbLb();}catch{}}const medals=['🥇','🥈','🥉'];
-  el.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px;">
-    <div style="font-family:var(--head);font-size:20px;font-weight:800;">🏆 Global Leaderboard</div>
+  // 1. Read localStorage synchronously
+  let lb=[];
+  try{const v=localStorage.getItem(SK.lb);lb=v?JSON.parse(v).sort((a,b)=>b.score-a.score):[];}catch{}
+  const medals=['🥇','🥈','🥉'];
+  // 2. Render IMMEDIATELY from local data
+  function doRender(data){
+    el.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px;">
+    <div style="font-family:var(--head);font-size:20px;font-weight:800;">🏆 Global Leaderboard ${fbDB?'<span class=\"chip chip-green\" style=\"font-size:9px;margin-left:8px\">☁ Live</span>':''}</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn btn-ghost btn-sm" onclick="renderAdminPanel('leaderboard')">⟳ Refresh</button>
       <button class="btn btn-primary btn-sm" onclick="exportLbCSV()">⬇ CSV</button>
-      ${fbDB?`<button class="btn btn-success btn-sm" onclick="pushLbToFB()">☁ Push to Firebase</button>`:''}
+      ${fbDB?'<button class=\"btn btn-success btn-sm\" onclick=\"pushLbToFB()\">☁ Push Firebase</button>':''}
     </div>
   </div>
-  ${!lb.length?'<div class="card" style="text-align:center;padding:40px;color:var(--muted);font-family:var(--mono);">Leaderboard is empty</div>':`
+  ${!data.length?'<div class="card" style="text-align:center;padding:40px;color:var(--muted);font-family:var(--mono);">Leaderboard is empty</div>':`
   <div class="card"><div class="tbl-wrap"><table class="tbl">
-    <thead><tr><th>Rank</th><th>Name</th><th>Module</th><th>Score</th><th>Accuracy</th><th>Difficulty</th></tr></thead>
-    <tbody>${lb.slice(0,30).map((e,i)=>`<tr>
+    <thead><tr><th>Rank</th><th>Name</th><th>Module</th><th>Score</th><th>Accuracy</th><th>Level</th></tr></thead>
+    <tbody>${data.slice(0,30).map((e,i)=>`<tr>
       <td style="font-family:var(--mono)">${medals[i]||('#'+(i+1))}</td>
       <td><span style="font-size:14px">${esc(e.avatar||'👤')}</span> <strong>${esc(e.name)}</strong></td>
       <td>${modName(e.modId)}</td>
@@ -574,6 +587,12 @@ async function panelLeaderboard(el){
       <td><span class="chip" style="border-color:${DIFF_COL[e.diff]}44;color:${DIFF_COL[e.diff]};background:${DIFF_COL[e.diff]}11;font-size:9px">${DIFF_LABELS[e.diff]||e.diff}</span></td>
     </tr>`).join('')}</tbody>
   </table></div></div>`}`;
+  }
+  doRender(lb);
+  // 3. Update from Firebase in background
+  if(fbDB){
+    fbLb().then(fbData=>{if(fbData&&fbData.length)doRender(fbData);}).catch(()=>{});
+  }
 }
 async function pushLbToFB(){
   const lb=await DB.get(SK.lb)||[];
@@ -1219,8 +1238,13 @@ async function endQuiz(){
   // Local save
   try{let results=[];try{const v=localStorage.getItem(SK.results);results=v?JSON.parse(v):[];}catch{}results.push(entry);await DB.set(SK.results,results);}catch{}
   try{let lb=[];try{const v=localStorage.getItem(SK.lb);lb=v?JSON.parse(v):[];}catch{}lb.push(entry);lb.sort((a,b)=>b.score-a.score);lb=lb.slice(0,CFG.maxPerLb||30);await DB.set(SK.lb,lb);}catch{}
-  // Firebase
-  if(fbDB){await DB.fbPush('results',entry);const k=`${String(entry.score).padStart(10,'0')}_${ts}`;await DB.fbSet(`leaderboard/${k}`,entry);}
+  // Firebase - fire and forget (don't await - never blocks UI)
+  if(fbDB){
+    Promise.all([
+      DB.fbPush('results',entry).catch(e=>console.warn('[FB] results save failed:',e)),
+      DB.fbSet(`leaderboard/${String(entry.score).padStart(10,'0')}_${ts}`,entry).catch(e=>console.warn('[FB] lb save failed:',e))
+    ]).catch(()=>{});
+  }
   // UI
   goTo('pgResult');dataRain();
   document.getElementById('resAvatar').textContent=G.avatar;document.getElementById('resName').textContent=G.name;

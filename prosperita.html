@@ -907,7 +907,7 @@ function panelSettings(el){
       <div style="background:rgba(27,159,224,.04);border:1px solid var(--border);border-radius:var(--r);padding:14px;margin-bottom:14px">
         <div style="font-family:var(--mono);font-size:9px;color:var(--eset);letter-spacing:2px;margin-bottom:12px">FIREBASE PROJECT CONFIG</div>
         <div class="field"><label>API Key</label><input class="inp inp-sm" id="fbApiKey" value="${esc(fc.apiKey||'')}" placeholder="AIzaSy..."/></div>
-        <div class="field"><label>Database URL</label><input class="inp inp-sm" id="fbDbUrl" value="${esc(fc.databaseURL||'')}" placeholder="https://your-project-default-rtdb.firebaseio.com"/></div>
+        <div class="field"><label>Database URL</label><input class="inp inp-sm" id="fbDbUrl" value="${esc(fc.databaseURL||'')}" placeholder="https://your-project-default-rtdb..com"/></div>
         <div class="field"><label>Project ID</label><input class="inp inp-sm" id="fbProjId" value="${esc(fc.projectId||'')}" placeholder="your-project-id"/></div>
         <div class="field"><label>Auth Domain <span style="color:var(--muted);font-weight:400">(optional)</span></label><input class="inp inp-sm" id="fbAuth" value="${esc(fc.authDomain||'')}" placeholder="your-project.firebaseapp.com"/></div>
         <div class="field" style="margin-bottom:0"><label>App ID <span style="color:var(--muted);font-weight:400">(optional)</span></label><input class="inp inp-sm" id="fbAppId" value="${esc(fc.appId||'')}" placeholder="1:123456:web:abcdef"/></div>
@@ -950,7 +950,7 @@ async function connectFirebase(){
   const appId=document.getElementById('fbAppId')?.value.trim()||'';
   const res=document.getElementById('fbResult');
   if(!apiKey||!databaseURL||!projectId){toast('API Key, Database URL and Project ID are required','error');return;}
-  if(!databaseURL.includes('firebaseio.com')){toast('Database URL must end with firebaseio.com','error');return;}
+  if(!databaseURL.includes('firebasedatabase.app')){toast('Database URL must end with firebasedatabase.app','error');return;}
   const cfg={apiKey,databaseURL,projectId,authDomain,appId};
   CFG.firebaseCfg=cfg; CFG.firebaseEnabled=true;
   await DB.set(SK.settings,CFG);
